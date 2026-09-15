@@ -98,7 +98,10 @@ with st.spinner("Actualizando variables macroeconómicas..."):
     df_tpm = get_bcch_series(bcch_user, bcch_pass, "F022.TPM.TIN.D001.NO.Z.D", days_back=60)
     df_cobre = get_bcch_series(bcch_user, bcch_pass, "F019.PPB.PRE.40.M", days_back=180)
     df_ipc = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=180)
-
+    
+# IPC Índice (Nivel en puntos) y Variación Mensual (%)
+    df_ipc_nivel = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.IND.Z.EP09.C.M", days_back=180)
+    df_ipc_var = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=180)
 # ----------------------------------------------------
 # 4. Sección Chile
 # ----------------------------------------------------
@@ -129,10 +132,26 @@ with c3:
         st.metric("TPM", "No disp.")
 
 with c4:
-    if df_ipc is not None and not df_ipc.empty:
-        st.metric("IPC Mensual (Var. %)", f"{df_ipc['value'].iloc[-1]:.2f}%")
+    if df_ipc_nivel is not None and not df_ipc_nivel.empty:
+        nivel_act = df_ipc_nivel['value'].iloc[-1]
+        
+        # Si tenemos la variación mensual, la mostramos como delta
+        if df_ipc_var is not None and not df_ipc_var.empty:
+            var_mensual = df_ipc_var['value'].iloc[-1]
+            st.metric(
+                label="IPC (Nivel Índice)", 
+                value=f"{nivel_act:,.2f} pts", 
+                delta=f"{var_mensual:+.2f}% mensual"
+            )
+        else:
+            st.metric(label="IPC (Nivel Índice)", value=f"{nivel_act:,.2f} pts")
     else:
-        st.metric("IPC", "No disp.")
+        # Respaldo en caso de que solo esté disponible la variación
+        if df_ipc_var is not None and not df_ipc_var.empty:
+            st.metric("IPC Mensual (Var. %)", f"{df_ipc_var['value'].iloc[-1]:.2f}%")
+        else:
+            st.metric("IPC", "No disp.")
+
 
 st.divider()
 
