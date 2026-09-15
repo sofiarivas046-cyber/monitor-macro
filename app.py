@@ -169,8 +169,16 @@ with c2:
 
 with c3:
     if df_tpm is not None and not df_tpm.empty:
-        st.metric("TPM Chile", f"{df_tpm['value'].iloc[-1]:.2f}%")
-        st.caption(format_date_str(df_tpm['date_label'].iloc[-1], is_monthly=False))
+        # Si el BCCh trae el registro adelantado de mañana, tomamos la fecha de hoy (penúltimo registro o fecha actual)
+        if len(df_tpm) >= 2:
+            val_tpm = df_tpm['value'].iloc[-1]
+            fecha_tpm = df_tpm['date_label'].iloc[-2]  # Fecha de hoy
+        else:
+            val_tpm = df_tpm['value'].iloc[-1]
+            fecha_tpm = df_tpm['date_label'].iloc[-1]
+            
+        st.metric("TPM Chile", f"{val_tpm:.2f}%")
+        st.caption(format_date_str(fecha_tpm, is_monthly=False))
     else:
         st.metric("TPM", "No disp.")
 
