@@ -42,11 +42,14 @@ def get_fred_data(api_key):
     
     cpi_yoy = ((cpi.iloc[-1] / cpi.iloc[-13]) - 1) * 100
     
-    # DataFrames para gráficos (últimos 180 días / 6 meses)
-    df_10y_us = tasa_10y.tail(180).reset_index().rename(columns={"index": "Fecha", 0: "US 10Y (%)"})
+    fecha_corte = pd.to_datetime(datetime.now() - timedelta(days=365))
+    
+    # Serie Bono 10Y EE.UU. (último año)
+    df_10y_us = tasa_10y[tasa_10y.index >= fecha_corte].reset_index().rename(columns={"index": "Fecha", 0: "US 10Y (%)"})
     df_10y_us["Fecha"] = pd.to_datetime(df_10y_us["Fecha"])
     
-    df_fed = tasa_fed.tail(24).reset_index().rename(columns={"index": "Fecha", 0: "Fed Funds (%)"})
+    # Serie Fed Funds (último año)
+    df_fed = tasa_fed[tasa_fed.index >= fecha_corte].reset_index().rename(columns={"index": "Fecha", 0: "Fed Funds (%)"})
     df_fed["Fecha"] = pd.to_datetime(df_fed["Fecha"])
     
     return {
@@ -114,14 +117,14 @@ with st.spinner("Actualizando variables macroeconómicas..."):
     # FRED
     data_us = get_fred_data(fred_key)
     
-    # Banco Central de Chile
+    # Banco Central de Chile (Aquí van las líneas con days_back=365)
     df_dolar = get_bcch_series(bcch_user, bcch_pass, "F073.TCO.PRE.Z.D", days_back=60)
-    df_tpm = get_bcch_series(bcch_user, bcch_pass, "F022.TPM.TIN.D001.NO.Z.D", days_back=180)
-    df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCLP.TIS.AN10.NO.Z.D", days_back=180)
-    df_cobre = get_bcch_series(bcch_user, bcch_pass, "F019.PPB.PRE.40.M", days_back=180)
-    df_ipc_nivel = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.IND.Z.EP09.C.M", days_back=180)
-    df_ipc_var = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=180)
-    df_desempleo_cl = get_bcch_series(bcch_user, bcch_pass, "F049.DES.TAS.INE9.10.M", days_back=180)
+    df_tpm = get_bcch_series(bcch_user, bcch_pass, "F022.TPM.TIN.D001.NO.Z.D", days_back=365)
+    df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCLP.TIS.AN10.NO.Z.D", days_back=365)
+    df_cobre = get_bcch_series(bcch_user, bcch_pass, "F019.PPB.PRE.40.M", days_back=365)
+    df_ipc_nivel = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.IND.Z.EP09.C.M", days_back=365)
+    df_ipc_var = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=365)
+    df_desempleo_cl = get_bcch_series(bcch_user, bcch_pass, "F049.DES.TAS.INE9.10.M", days_back=365)
 
 # ----------------------------------------------------
 # 4. Sección Chile
