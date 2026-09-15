@@ -15,7 +15,7 @@ st.set_page_config(
 st.title("📊 Monitor Macroeconómico")
 st.caption("Fuentes oficiales: Banco Central de Chile y Reserva Federal de EE.UU. (FRED)")
 
-# ----------------------------------------------------
+# ----------------------------------------------------__
 # 1. Conexión con FRED (EE.UU.)
 # ----------------------------------------------------
 @st.cache_data(ttl=3600)  # Guarda en caché por 1 hora para no saturar la API
