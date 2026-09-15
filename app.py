@@ -5,7 +5,7 @@ from fredapi import Fred
 import plotly.express as px
 from datetime import datetime, timedelta
 
-# Configuración visual de la página
+# Configuración de la página
 st.set_page_config(
     page_title="Monitor Macroeconómico",
     page_icon="📈",
@@ -15,38 +15,34 @@ st.set_page_config(
 st.title("📊 Monitor Macroeconómico")
 st.caption("Fuentes oficiales: Banco Central de Chile y Reserva Federal de EE.UU. (FRED)")
 
-# ----------------------------------------------------__
-# 1. Conexión con FRED (EE.UU.)
 # ----------------------------------------------------
-@st.cache_data(ttl=3600)  # Guarda en caché por 1 hora para no saturar la API
+# 1. Función FRED (Estados Unidos)
+# ----------------------------------------------------
+@st.cache_data(ttl=1800)
 def get_fred_data(api_key):
     fred = Fred(api_key=api_key)
     
-    # Series oficiales de FRED
-    # DGS10: Bono US 10A, FEDFUNDS: Tasa Fed, CPIAUCSL: IPC US, UNRATE: Desempleo US
-    tasa_10y = fred.get_series('DGS10')
-    tasa_fed = fred.get_series('FEDFUNDS')
-    cpi = fred.get_series('CPIAUCSL')
-    unrate = fred.get_series('UNRATE')
+    tasa_10y = fred.get_series('DGS10').dropna()
+    tasa_fed = fred.get_series('FEDFUNDS').dropna()
+    cpi = fred.get_series('CPIAUCSL').dropna()
+    unrate = fred.get_series('UNRATE').dropna()
     
-    # Calcular variación anual de inflación US (últimos 12 meses)
     cpi_yoy = ((cpi.iloc[-1] / cpi.iloc[-13]) - 1) * 100
     
     return {
-        "us_10y": (tasa_10y.dropna().iloc[-1], tasa_10y.dropna().iloc[-2]),
-        "fed_rate": (tasa_fed.dropna().iloc[-1], tasa_fed.dropna().iloc[-2]),
+        "us_10y": (tasa_10y.iloc[-1], tasa_10y.iloc[-2]),
+        "fed_rate": (tasa_fed.iloc[-1], tasa_fed.iloc[-2]),
         "us_cpi": cpi_yoy,
-        "us_unemp": unrate.dropna().iloc[-1],
-        "df_10y": tasa_10y.dropna().tail(90).reset_index().rename(columns={"index": "Fecha", 0: "Tasa (%)"})
+        "us_unemp": unrate.iloc[-1],
+        "df_10y": tasa_10y.tail(90).reset_index().rename(columns={"index": "Fecha", 0: "Tasa (%)"})
     }
 
 # ----------------------------------------------------
-# 2. Conexión con Banco Central de Chile (Inspección y Extracción)
+# 2. Función Banco Central de Chile
 # ----------------------------------------------------
-@st.cache_data(ttl=600)
-def get_bcch_series(user, password, series_id):
-    # Rango de fechas de los últimos 60 días
-    first_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
+@st.cache_data(ttl=1800)
+def get_bcch_series(user, password, series_id, days_back=120):
+    first_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
     last_date = datetime.now().strftime('%Y-%m-%d')
     
     url = (
@@ -60,69 +56,48 @@ def get_bcch_series(user, password, series_id):
         response = requests.get(url, timeout=15)
         res = response.json()
         
-        # 1. Si el Banco Central reporta error de autenticación o parámetros
-        if res.get("Codigo") not in [0, None]:
-            st.sidebar.error(f"⚠️ BCCh ({series_id}): {res.get('Descripcion')}")
-            return None
-
-        # 2. Buscar la lista de observaciones en todas las estructuras posibles del BCCh
-        obs = None
-        if "Series" in res:
-            if isinstance(res["Series"], dict):
-                obs = res["Series"].get("Obs") or res["Series"].get("obs")
-            elif isinstance(res["Series"], list) and len(res["Series"]) > 0:
-                obs = res["Series"][0].get("Obs") or res["Series"][0].get("obs")
-                
-        elif "SeriesInfos" in res:
-            if isinstance(res["SeriesInfos"], list) and len(res["SeriesInfos"]) > 0:
-                obs = res["SeriesInfos"][0].get("Obs") or res["SeriesInfos"][0].get("obs")
-            elif isinstance(res["SeriesInfos"], dict):
-                obs = res["SeriesInfos"].get("Obs") or res["SeriesInfos"].get("obs")
-
-        # 3. Si se encontraron observaciones, procesarlas
-        if obs:
+        # Validar si el BCCh entregó respuesta
+        if "Series" in res and res["Series"] and "Obs" in res["Series"]:
+            obs = res["Series"]["Obs"]
             if isinstance(obs, dict):
                 obs = [obs]
             df = pd.DataFrame(obs)
-            
-            # Normalizar nombre de la columna (a veces viene 'value' o 'Value')
             col_val = next((c for c in df.columns if c.lower() == 'value'), None)
             if col_val:
                 df['value'] = pd.to_numeric(df[col_val].astype(str).str.replace(',', '.'), errors='coerce')
                 return df.dropna(subset=['value']).reset_index(drop=True)
+                
+        elif "SeriesInfos" in res and res["SeriesInfos"]:
+            obs = res["SeriesInfos"][0].get("Obs", [])
+            df = pd.DataFrame(obs)
+            if 'value' in df.columns:
+                df['value'] = pd.to_numeric(df['value'].astype(str).str.replace(',', '.'), errors='coerce')
+                return df.dropna(subset=['value']).reset_index(drop=True)
 
-        # Si no pudo extraer datos, muestra la respuesta cruda en la barra lateral para diagnosticar
-        st.sidebar.warning(f"Respuesta BCCh para {series_id}: {str(res)[:180]}")
+        return None
+    except Exception:
         return None
 
-    except Exception as e:
-        st.sidebar.error(f"Error con BCCh ({series_id}): {e}")
-        return None
 # ----------------------------------------------------
-# 3. Carga y despliegue de datos
+# 3. Lectura de Credenciales y Carga
 # ----------------------------------------------------
 fred_key = st.secrets.get("FRED_API_KEY", "")
 bcch_user = st.secrets.get("BCCH_USER", "")
 bcch_pass = st.secrets.get("BCCH_PASS", "")
 
 if not fred_key or not bcch_user or not bcch_pass:
-    st.error("⚠️ Faltan configurar las credenciales en Streamlit Secrets (FRED_API_KEY, BCCH_USER, BCCH_PASS).")
+    st.error("⚠️ Faltan configurar las credenciales en Streamlit Secrets.")
     st.stop()
 
-# Descarga de datos
 with st.spinner("Actualizando variables macroeconómicas..."):
-    # FRED
+    # Carga FRED
     data_us = get_fred_data(fred_key)
     
-    # Banco Central:
-    # F073.TCO.PRE.Z.D = Dólar Observado (USD/CLP)
-    # F072.CLP.TPM.N.O.D = TPM Chile
-    # F073.BML.PRE.Z.D = Cobre spot Londres (USD/lb)
-    # F073.IPC.VAR.Z.Z.C = Variación IPC 12 meses
-    df_dolar = get_bcch_series(bcch_user, bcch_pass, "F073.TCO.PRE.Z.D")
-    df_tpm = get_bcch_series(bcch_user, bcch_pass, "F072.CLP.TPM.N.O.D")
-    df_cobre = get_bcch_series(bcch_user, bcch_pass, "F073.BML.PRE.Z.D")
-    df_ipc = get_bcch_series(bcch_user, bcch_pass, "F073.IPC.VAR.Z.Z.C")
+    # Códigos de series oficiales del Banco Central de Chile
+    df_dolar = get_bcch_series(bcch_user, bcch_pass, "F073.TCO.PRE.Z.D", days_back=60)
+    df_tpm = get_bcch_series(bcch_user, bcch_pass, "F022.TPM.TIN.D001.NO.Z.D", days_back=60)
+    df_cobre = get_bcch_series(bcch_user, bcch_pass, "F019.PPB.PRE.40.M", days_back=180)
+    df_ipc = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=180)
 
 # ----------------------------------------------------
 # 4. Sección Chile
@@ -131,20 +106,21 @@ st.subheader("🇨🇱 Indicadores Chile")
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
-    if df_dolar is not None and not df_dolar.empty:
+    if df_dolar is not None and len(df_dolar) >= 2:
         val_act = df_dolar['value'].iloc[-1]
         val_ant = df_dolar['value'].iloc[-2]
         st.metric("Dólar Observado (USD/CLP)", f"${val_act:,.2f}", delta=f"{val_act - val_ant:+.2f}")
+    elif df_dolar is not None and len(df_dolar) == 1:
+        st.metric("Dólar Observado (USD/CLP)", f"${df_dolar['value'].iloc[-1]:,.2f}")
     else:
         st.metric("Dólar Observado", "No disp.")
 
 with c2:
     if df_cobre is not None and not df_cobre.empty:
         val_act = df_cobre['value'].iloc[-1]
-        val_ant = df_cobre['value'].iloc[-2]
-        st.metric("Cobre (USD/lb)", f"${val_act:.2f}", delta=f"{val_act - val_ant:+.2f}")
+        st.metric("Cobre BML (USD/lb)", f"${val_act:.2f}")
     else:
-        st.metric("Cobre", "No disp.")
+        st.metric("Cobre BML", "No disp.")
 
 with c3:
     if df_tpm is not None and not df_tpm.empty:
@@ -154,14 +130,14 @@ with c3:
 
 with c4:
     if df_ipc is not None and not df_ipc.empty:
-        st.metric("Inflación IPC (12M)", f"{df_ipc['value'].iloc[-1]:.1f}%")
+        st.metric("IPC Mensual (Var. %)", f"{df_ipc['value'].iloc[-1]:.2f}%")
     else:
-        st.metric("Inflación IPC", "No disp.")
+        st.metric("IPC", "No disp.")
 
 st.divider()
 
 # ----------------------------------------------------
-# 5. Sección Estados Unidos y Global
+# 5. Sección Estados Unidos
 # ----------------------------------------------------
 st.subheader("🇺🇸 Indicadores Estados Unidos")
 u1, u2, u3, u4 = st.columns(4)
