@@ -41,22 +41,26 @@ def get_fred_data(api_key):
     }
 
 # ----------------------------------------------------
-# 2. Conexión con Banco Central de Chile
+# 2. Conexión con Banco Central de Chile (Corregida)
 # ----------------------------------------------------
 @st.cache_data(ttl=3600)
 def get_bcch_series(user, password, series_id):
-    url = f"https://si3.bcentral.cl/SieteRestWS/SieteRestWS.aspx?user={user}&pass={password}&firstdate={datetime.now().strftime('%Y-%m-%d')}&timeseries={series_id}"
-    # Si es fin de semana o feriado, pedimos los últimos 30 días para asegurar el último dato
+    # Pedimos los últimos 45 días para asegurar fines de semana/feriados
     first_date = (datetime.now() - timedelta(days=45)).strftime('%Y-%m-%d')
-    url = f"https://si3.bcentral.cl/SieteRestWS/SieteRestWS.aspx?user={user}&pass={password}&firstdate={first_date}&timeseries={series_id}"
+    url = f"https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx?user={user}&pass={password}&firstdate={first_date}&timeseries={series_id}&function=GetSeries"
     
     try:
-        res = requests.get(url, timeout=10).json()
-        series_data = res['Series']['Obs']
-        df = pd.DataFrame(series_data)
-        df['value'] = pd.to_numeric(df['value'].str.replace(',', '.'), errors='coerce')
-        df = df.dropna().reset_index(drop=True)
-        return df
+        res = requests.get(url, timeout=12).json()
+        
+        # Manejo de respuesta del Banco Central
+        if 'Series' in res and 'Obs' in res['Series']:
+            obs = res['Series']['Obs']
+            df = pd.DataFrame(obs)
+            df['value'] = pd.to_numeric(df['value'].str.replace(',', '.'), errors='coerce')
+            df = df.dropna().reset_index(drop=True)
+            return df
+        else:
+            return None
     except Exception:
         return None
 
