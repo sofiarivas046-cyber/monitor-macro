@@ -60,7 +60,35 @@ def get_fred_data(api_key):
         "df_10y_us": df_10y_us,
         "df_fed": df_fed
     }
-
+@st.cache_data(ttl=1800)
+def get_fred_data(api_key):
+    fred = Fred(api_key=api_key)
+    
+    tasa_10y = fred.get_series('DGS10').dropna()
+    tasa_fed = fred.get_series('FEDFUNDS').dropna()
+    cpi = fred.get_series('CPIAUCSL').dropna()
+    unrate = fred.get_series('UNRATE').dropna()
+    dxy = fred.get_series('DTWEXBGS').dropna()  # Índice Dólar Multilateral
+    
+    cpi_yoy = ((cpi.iloc[-1] / cpi.iloc[-13]) - 1) * 100
+    
+    fecha_corte = pd.to_datetime(datetime.now() - timedelta(days=365))
+    
+    df_10y_us = tasa_10y[tasa_10y.index >= fecha_corte].reset_index().rename(columns={"index": "Fecha", 0: "US 10Y (%)"})
+    df_10y_us["Fecha"] = pd.to_datetime(df_10y_us["Fecha"])
+    
+    df_fed = tasa_fed[tasa_fed.index >= fecha_corte].reset_index().rename(columns={"index": "Fecha", 0: "Fed Funds (%)"})
+    df_fed["Fecha"] = pd.to_datetime(df_fed["Fecha"])
+    
+    return {
+        "us_10y": (tasa_10y.iloc[-1], tasa_10y.iloc[-2], tasa_10y.index[-1]),
+        "fed_rate": (tasa_fed.iloc[-1], tasa_fed.iloc[-2], tasa_fed.index[-1]),
+        "us_cpi": (cpi_yoy, cpi.index[-1]),
+        "us_unemp": (unrate.iloc[-1], unrate.index[-1]),
+        "dxy": (dxy.iloc[-1], dxy.iloc[-2], dxy.index[-1]),
+        "df_10y_us": df_10y_us,
+        "df_fed": df_fed
+    }
 # ----------------------------------------------------
 # 2. Función Banco Central de Chile
 # ----------------------------------------------------
@@ -312,3 +340,50 @@ with g2:
         yaxis=dict(title="Tasa (%)")
     )
     st.plotly_chart(fig_tasas, use_container_width=True)
+
+# ----------------------------------------------------
+# 6. Dinámica Cambiaria y Factores de Riesgo (Chile vs EE.UU.)
+# ----------------------------------------------------
+st.divider()
+st.subheader("🌐 Dinámica Cambiaria y Factores de Riesgo")
+m1, m2, m3 = st.columns(3)
+
+# 1. Demanda Global de USD (Índice Dólar DXY / Broad)
+with m1:
+    dxy_act, dxy_ant, dxy_date = data_us["dxy"]
+    st.metric(
+        label="Demanda Global USD (Broad Index)",
+        value=f"{dxy_act:.2f} pts",
+        delta=f"{(dxy_act - dxy_ant):+.2f} pts"
+    )
+    st.caption(format_date_str(dxy_date, is_monthly=False))
+
+# 2. Diferencial de Política Monetaria (Diferencial Forward Implícito / Carry)
+with m2:
+    if df_tpm is not None and not df_tpm.empty:
+        tpm_val = df_tpm['value'].iloc[-1]
+        fed_val = data_us["fed_rate"][0]
+        diff_forward = tpm_val - fed_val
+        st.metric(
+            label="Diferencial de Tasas (TPM - Fed Funds)",
+            value=f"{diff_forward:+.2f}%",
+            delta=f"{'Premio Chile' if diff_forward > 0 else 'Descuento'}"
+        )
+        st.caption("Diferencial de carry trade / tasa corta")
+    else:
+        st.metric("Diferencial de Tasas", "No disp.")
+
+# 3. Prima de Riesgo / Spread Soberano 10A
+with m3:
+    if df_bono10_cl is not None and not df_bono10_cl.empty:
+        bono_cl = df_bono10_cl['value'].iloc[-1]
+        bono_us = data_us["us_10y"][0]
+        spread_10a_bps = (bono_cl - bono_us) * 100  # En puntos base (bps)
+        st.metric(
+            label="Prima Soberana 10A (Chile vs US)",
+            value=f"{bono_cl - bono_us:+.2f}%",
+            delta=f"{spread_10a_bps:+.0f} bps"
+        )
+        st.caption("Spread soberano nominal a 10 años")
+    else:
+        st.metric("Prima Soberana 10A", "No disp.")
