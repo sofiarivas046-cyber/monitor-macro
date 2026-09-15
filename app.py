@@ -114,8 +114,8 @@ with st.spinner("Actualizando variables macroeconómicas..."):
     df_ipc_var = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=180)
     df_desempleo_cl = get_bcch_series(bcch_user, bcch_pass, "F049.DES.TAS.INE9.10.M", days_back=180)
 
-# Bono Banco Central de Chile a 10 años en pesos (BCP 10A)
-    df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCP.TIN.AN10.NO.Z.D", days_back=90)
+# Bono Soberano Chile a 10 años en pesos (BCP / BTP 10A)
+    df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCLP.TIS.AN10.NO.Z.D", days_back=90)
 
 # ----------------------------------------------------
 # 4. Sección Chile
