@@ -110,59 +110,6 @@ with st.spinner("Actualizando variables macroeconómicas..."):
 # 4. Sección Chile
 # ----------------------------------------------------
 st.subheader("🇨🇱 Indicadores Chile")
-c1, c2, c3, c4 = st.columns(4)
-
-with c1:
-    if df_dolar is not None and len(df_dolar) >= 2:
-        val_act = df_dolar['value'].iloc[-1]
-        val_ant = df_dolar['value'].iloc[-2]
-        st.metric("Dólar Observado (USD/CLP)", f"${val_act:,.2f}", delta=f"{val_act - val_ant:+.2f}")
-    elif df_dolar is not None and len(df_dolar) == 1:
-        st.metric("Dólar Observado (USD/CLP)", f"${df_dolar['value'].iloc[-1]:,.2f}")
-    else:
-        st.metric("Dólar Observado", "No disp.")
-
-with c2:
-    if df_cobre is not None and not df_cobre.empty:
-        val_act = df_cobre['value'].iloc[-1]
-        st.metric("Cobre BML (USD/lb)", f"${val_act:.2f}")
-    else:
-        st.metric("Cobre BML", "No disp.")
-
-with c3:
-    if df_tpm is not None and not df_tpm.empty:
-        st.metric("TPM (Tasa Política Monetaria)", f"{df_tpm['value'].iloc[-1]:.2f}%")
-    else:
-        st.metric("TPM", "No disp.")
-
-with c4:
-    if df_ipc_nivel is not None and not df_ipc_nivel.empty:
-        nivel_act = df_ipc_nivel['value'].iloc[-1]
-        
-        # Si tenemos la variación mensual, la mostramos como delta
-        if df_ipc_var is not None and not df_ipc_var.empty:
-            var_mensual = df_ipc_var['value'].iloc[-1]
-            st.metric(
-                label="IPC (Nivel Índice)", 
-                value=f"{nivel_act:,.2f} pts", 
-                delta=f"{var_mensual:+.2f}% mensual"
-            )
-        else:
-            st.metric(label="IPC (Nivel Índice)", value=f"{nivel_act:,.2f} pts")
-    else:
-        # Respaldo en caso de que solo esté disponible la variación
-        if df_ipc_var is not None and not df_ipc_var.empty:
-            st.metric("IPC Mensual (Var. %)", f"{df_ipc_var['value'].iloc[-1]:.2f}%")
-        else:
-            st.metric("IPC", "No disp.")
-
-
-st.divider()
-
-# ----------------------------------------------------
-# 4. Sección Chile
-# ----------------------------------------------------
-st.subheader("🇨🇱 Indicadores Chile")
 c1, c2, c3, c4, c5 = st.columns(5)
 
 with c1:
@@ -205,6 +152,29 @@ with c5:
         st.metric("Desempleo Chile", f"{val_act:.1f}%")
     else:
         st.metric("Desempleo Chile", "No disp.")
+
+
+st.divider()
+
+# ----------------------------------------------------
+# 5. Sección Estados Unidos
+# ----------------------------------------------------
+st.subheader("🇺🇸 Indicadores Estados Unidos")
+u1, u2, u3, u4 = st.columns(4)
+
+with u1:
+    val_act, val_ant = data_us["us_10y"]
+    st.metric("Bono US Treasury 10A", f"{val_act:.2f}%", delta=f"{(val_act - val_ant):+.2f}%")
+
+with u2:
+    val_act, val_ant = data_us["fed_rate"]
+    st.metric("Tasa Fed Funds", f"{val_act:.2f}%")
+
+with u3:
+    st.metric("Inflación CPI EE.UU. (12M)", f"{data_us['us_cpi']:.1f}%")
+
+with u4:
+    st.metric("Desempleo EE.UU.", f"{data_us['us_unemp']:.1f}%")
 
 # ----------------------------------------------------
 # 6. Gráfico de Tendencia
