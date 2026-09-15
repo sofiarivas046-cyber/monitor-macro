@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from fredapi import Fred
-import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # Configuración visual de la página
@@ -42,19 +42,27 @@ def get_fred_data(api_key):
     
     cpi_yoy = ((cpi.iloc[-1] / cpi.iloc[-13]) - 1) * 100
     
+    # DataFrames para gráficos (últimos 180 días / 6 meses)
+    df_10y_us = tasa_10y.tail(180).reset_index().rename(columns={"index": "Fecha", 0: "US 10Y (%)"})
+    df_10y_us["Fecha"] = pd.to_datetime(df_10y_us["Fecha"])
+    
+    df_fed = tasa_fed.tail(24).reset_index().rename(columns={"index": "Fecha", 0: "Fed Funds (%)"})
+    df_fed["Fecha"] = pd.to_datetime(df_fed["Fecha"])
+    
     return {
         "us_10y": (tasa_10y.iloc[-1], tasa_10y.iloc[-2], tasa_10y.index[-1]),
         "fed_rate": (tasa_fed.iloc[-1], tasa_fed.iloc[-2], tasa_fed.index[-1]),
         "us_cpi": (cpi_yoy, cpi.index[-1]),
         "us_unemp": (unrate.iloc[-1], unrate.index[-1]),
-        "df_10y": tasa_10y.tail(90).reset_index().rename(columns={"index": "Fecha", 0: "Tasa (%)"})
+        "df_10y_us": df_10y_us,
+        "df_fed": df_fed
     }
 
 # ----------------------------------------------------
 # 2. Función Banco Central de Chile
 # ----------------------------------------------------
 @st.cache_data(ttl=1800)
-def get_bcch_series(user, password, series_id, days_back=120):
+def get_bcch_series(user, password, series_id, days_back=180):
     first_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
     last_date = datetime.now().strftime('%Y-%m-%d')
     
@@ -82,9 +90,9 @@ def get_bcch_series(user, password, series_id, days_back=120):
             col_val = next((c for c in df.columns if c.lower() == 'value'), None)
             if col_val:
                 df['value'] = pd.to_numeric(df[col_val].astype(str).str.replace(',', '.'), errors='coerce')
-                # Normalizar columna de fecha
                 col_date = next((c for c in df.columns if 'date' in c.lower()), df.columns[0])
                 df['date_label'] = df[col_date]
+                df['Fecha'] = pd.to_datetime(df['date_label'], dayfirst=True, errors='coerce')
                 return df.dropna(subset=['value']).reset_index(drop=True)
 
         return None
@@ -108,25 +116,20 @@ with st.spinner("Actualizando variables macroeconómicas..."):
     
     # Banco Central de Chile
     df_dolar = get_bcch_series(bcch_user, bcch_pass, "F073.TCO.PRE.Z.D", days_back=60)
-    df_tpm = get_bcch_series(bcch_user, bcch_pass, "F022.TPM.TIN.D001.NO.Z.D", days_back=60)
+    df_tpm = get_bcch_series(bcch_user, bcch_pass, "F022.TPM.TIN.D001.NO.Z.D", days_back=180)
+    df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCLP.TIS.AN10.NO.Z.D", days_back=180)
     df_cobre = get_bcch_series(bcch_user, bcch_pass, "F019.PPB.PRE.40.M", days_back=180)
     df_ipc_nivel = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.IND.Z.EP09.C.M", days_back=180)
     df_ipc_var = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=180)
     df_desempleo_cl = get_bcch_series(bcch_user, bcch_pass, "F049.DES.TAS.INE9.10.M", days_back=180)
 
-# Bono Soberano Chile a 10 años en pesos (BCP / BTP 10A)
-    df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCLP.TIS.AN10.NO.Z.D", days_back=90)
-
 # ----------------------------------------------------
-# 4. Sección Chile (Con Dólar Hoy y Dólar Fijado Mañana)
+# 4. Sección Chile
 # ----------------------------------------------------
 st.subheader("🇨🇱 Indicadores Chile")
 
-# Verificamos si la última fecha del BCCh corresponde a una fecha futura (mañana)
 has_tomorrow_dolar = False
 if df_dolar is not None and len(df_dolar) >= 2:
-    last_date_str = str(df_dolar['date_label'].iloc[-1])
-    # Si la fecha final es mayor a la penúltima
     val_manana = df_dolar['value'].iloc[-1]
     fecha_manana = df_dolar['date_label'].iloc[-1]
     
@@ -139,13 +142,11 @@ elif df_dolar is not None and len(df_dolar) == 1:
     val_hoy = df_dolar['value'].iloc[0]
     fecha_hoy = df_dolar['date_label'].iloc[0]
 
-# Ajustamos las columnas según tengamos la fijación de mañana
 if has_tomorrow_dolar:
     c1, c1_next, c2, c3, c4, c5, c6 = st.columns(7)
 else:
     c1, c2, c3, c4, c5, c6 = st.columns(6)
 
-# Dólar Hoy
 with c1:
     if df_dolar is not None and not df_dolar.empty:
         st.metric("USD/CLP (Rige Hoy)", f"${val_hoy:,.2f}")
@@ -153,7 +154,6 @@ with c1:
     else:
         st.metric("USD/CLP (Hoy)", "No disp.")
 
-# Dólar Fijado Mañana (aparece si el BCCh ya lo publicó)
 if has_tomorrow_dolar:
     with c1_next:
         st.metric("USD/CLP (Fijado Mañana)", f"${val_manana:,.2f}", delta=f"{delta_manana:+.2f}")
@@ -169,14 +169,12 @@ with c2:
 
 with c3:
     if df_tpm is not None and not df_tpm.empty:
-        # Si el BCCh trae el registro adelantado de mañana, tomamos la fecha de hoy (penúltimo registro o fecha actual)
         if len(df_tpm) >= 2:
             val_tpm = df_tpm['value'].iloc[-1]
-            fecha_tpm = df_tpm['date_label'].iloc[-2]  # Fecha de hoy
+            fecha_tpm = df_tpm['date_label'].iloc[-2]
         else:
             val_tpm = df_tpm['value'].iloc[-1]
             fecha_tpm = df_tpm['date_label'].iloc[-1]
-            
         st.metric("TPM Chile", f"{val_tpm:.2f}%")
         st.caption(format_date_str(fecha_tpm, is_monthly=False))
     else:
@@ -212,7 +210,9 @@ with c6:
         st.caption(format_date_str(df_desempleo_cl['date_label'].iloc[-1], is_monthly=True))
     else:
         st.metric("Desempleo Chile", "No disp.")
-        
+
+st.divider()
+
 # ----------------------------------------------------
 # 5. Sección Estados Unidos
 # ----------------------------------------------------
@@ -239,11 +239,76 @@ with u4:
     st.metric("Desempleo EE.UU.", f"{val_act:.1f}%")
     st.caption(format_date_str(f_date, is_monthly=True))
 
-# ----------------------------------------------------
-# 6. Gráfico de Tendencia
-# ----------------------------------------------------
 st.divider()
-st.subheader("📉 Evolución Reciente: Bono Tesoro EE.UU. 10 Años")
-fig = px.line(data_us["df_10y"], x="Fecha", y="Tasa (%)", markers=True)
-fig.update_layout(height=350, margin=dict(l=20, r=20, t=20, b=20))
-st.plotly_chart(fig, use_container_width=True)
+
+# ----------------------------------------------------
+# 6. Gráficos Comparativos (Chile vs. EE.UU.)
+# ----------------------------------------------------
+st.subheader("📈 Comparativas Macroeconómicas: Chile vs. EE.UU.")
+g1, g2 = st.columns(2)
+
+# Gráfico 1: Bonos Soberanos 10 Años
+with g1:
+    st.markdown("**Tasas Soberanas a 10 Años (Bono BCCh vs. US Treasury)**")
+    fig_bonos = go.Figure()
+    
+    # Serie US 10Y
+    df_us_10 = data_us["df_10y_us"]
+    fig_bonos.add_trace(go.Scatter(
+        x=df_us_10["Fecha"], 
+        y=df_us_10["US 10Y (%)"], 
+        mode='lines', 
+        name='US Treasury 10Y',
+        line=dict(color='#1f77b4', width=2)
+    ))
+    
+    # Serie Chile 10Y
+    if df_bono10_cl is not None and not df_bono10_cl.empty:
+        fig_bonos.add_trace(go.Scatter(
+            x=df_bono10_cl["Fecha"], 
+            y=df_bono10_cl["value"], 
+            mode='lines', 
+            name='Chile BCP 10Y',
+            line=dict(color='#d62728', width=2)
+        ))
+        
+    fig_bonos.update_layout(
+        height=360, 
+        margin=dict(l=20, r=20, t=30, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        yaxis=dict(title="Tasa (%)")
+    )
+    st.plotly_chart(fig_bonos, use_container_width=True)
+
+# Gráfico 2: TPM Chile vs. Fed Funds Rate
+with g2:
+    st.markdown("**Tasas de Política Monetaria (TPM Chile vs. Fed Funds Rate)**")
+    fig_tasas = go.Figure()
+    
+    # Serie Fed Funds
+    df_fed = data_us["df_fed"]
+    fig_tasas.add_trace(go.Scatter(
+        x=df_fed["Fecha"], 
+        y=df_fed["Fed Funds (%)"], 
+        mode='lines+markers', 
+        name='Fed Funds Rate (EE.UU.)',
+        line=dict(color='#2ca02c', width=2)
+    ))
+    
+    # Serie TPM Chile
+    if df_tpm is not None and not df_tpm.empty:
+        fig_tasas.add_trace(go.Scatter(
+            x=df_tpm["Fecha"], 
+            y=df_tpm["value"], 
+            mode='lines', 
+            name='TPM Chile (BCCh)',
+            line=dict(color='#ff7f0e', width=2)
+        ))
+        
+    fig_tasas.update_layout(
+        height=360, 
+        margin=dict(l=20, r=20, t=30, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        yaxis=dict(title="Tasa (%)")
+    )
+    st.plotly_chart(fig_tasas, use_container_width=True)
