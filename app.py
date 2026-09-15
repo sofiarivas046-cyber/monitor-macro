@@ -122,8 +122,9 @@ with st.spinner("Actualizando variables macroeconómicas..."):
     df_tpm = get_bcch_series(bcch_user, bcch_pass, "F022.TPM.TIN.D001.NO.Z.D", days_back=365)
     df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCLP.TIS.AN10.NO.Z.D", days_back=365)
     df_cobre = get_bcch_series(bcch_user, bcch_pass, "F019.PPB.PRE.40.M", days_back=365)
-    df_ipc_nivel = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.IND.Z.EP09.C.M", days_back=365)
-    df_ipc_var = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=365)
+    # Inflación en 12 meses (%) y Variación del mes (%)
+    df_ipc_12m = get_bcch_series(bcch_user, bcch_pass, "F073.IPC.VAR.Z.Z.C", days_back=365)
+    df_ipc_mes = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=365)
     df_desempleo_cl = get_bcch_series(bcch_user, bcch_pass, "F049.DES.TAS.INE9.10.M", days_back=365)
 
 # ----------------------------------------------------
@@ -196,31 +197,19 @@ with c4:
         st.metric("Bono BCCh 10A", "No disp.")
 
 with c5:
-    if df_ipc_nivel is not None and len(df_ipc_nivel) >= 13:
-        # Cálculo de inflación anual a 12 meses (%)
-        idx_act = df_ipc_nivel['value'].iloc[-1]
-        idx_hace_12m = df_ipc_nivel['value'].iloc[-13]
-        inflacion_12m = ((idx_act / idx_hace_12m) - 1) * 100
+    if df_ipc_12m is not None and not df_ipc_12m.empty:
+        val_12m = df_ipc_12m['value'].iloc[-1]
         
-        # Variación del mes (%)
-        if df_ipc_var is not None and not df_ipc_var.empty:
-            var_mensual = df_ipc_var['value'].iloc[-1]
-            st.metric(
-                label="Inflación IPC (12M)", 
-                value=f"{inflacion_12m:.1f}%", 
-                delta=f"{var_mensual:+.2f}% mensual"
-            )
+        # Si tenemos la variación mensual la mostramos en el delta
+        if df_ipc_mes is not None and not df_ipc_mes.empty:
+            var_m = df_ipc_mes['value'].iloc[-1]
+            st.metric("Inflación IPC (12M)", f"{val_12m:.1f}%", delta=f"{var_m:+.2f}% m/m")
         else:
-            st.metric(label="Inflación IPC (12M)", value=f"{inflacion_12m:.1f}%")
+            st.metric("Inflación IPC (12M)", f"{val_12m:.1f}%")
             
-        st.caption(format_date_str(df_ipc_nivel['date_label'].iloc[-1], is_monthly=True))
-        
-    elif df_ipc_var is not None and not df_ipc_var.empty:
-        # Respaldo si hay menos de 12 meses cargados
-        st.metric("IPC Mensual (Var. %)", f"{df_ipc_var['value'].iloc[-1]:.2f}%")
-        st.caption(format_date_str(df_ipc_var['date_label'].iloc[-1], is_monthly=True))
+        st.caption(format_date_str(df_ipc_12m['date_label'].iloc[-1], is_monthly=True))
     else:
-        st.metric("IPC", "No disp.")
+        st.metric("Inflación IPC", "No disp.")
 
 with c6:
     if df_desempleo_cl is not None and not df_desempleo_cl.empty:
