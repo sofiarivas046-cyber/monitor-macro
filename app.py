@@ -118,22 +118,46 @@ with st.spinner("Actualizando variables macroeconómicas..."):
     df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCLP.TIS.AN10.NO.Z.D", days_back=90)
 
 # ----------------------------------------------------
-# 4. Sección Chile
+# 4. Sección Chile (Con Dólar Hoy y Dólar Fijado Mañana)
 # ----------------------------------------------------
 st.subheader("🇨🇱 Indicadores Chile")
-c1, c2, c3, c4, c5, c6 = st.columns(6)
 
+# Verificamos si la última fecha del BCCh corresponde a una fecha futura (mañana)
+has_tomorrow_dolar = False
+if df_dolar is not None and len(df_dolar) >= 2:
+    last_date_str = str(df_dolar['date_label'].iloc[-1])
+    # Si la fecha final es mayor a la penúltima
+    val_manana = df_dolar['value'].iloc[-1]
+    fecha_manana = df_dolar['date_label'].iloc[-1]
+    
+    val_hoy = df_dolar['value'].iloc[-2]
+    fecha_hoy = df_dolar['date_label'].iloc[-2]
+    
+    delta_manana = val_manana - val_hoy
+    has_tomorrow_dolar = True
+elif df_dolar is not None and len(df_dolar) == 1:
+    val_hoy = df_dolar['value'].iloc[0]
+    fecha_hoy = df_dolar['date_label'].iloc[0]
+
+# Ajustamos las columnas según tengamos la fijación de mañana
+if has_tomorrow_dolar:
+    c1, c1_next, c2, c3, c4, c5, c6 = st.columns(7)
+else:
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+
+# Dólar Hoy
 with c1:
-    if df_dolar is not None and len(df_dolar) >= 2:
-        val_act = df_dolar['value'].iloc[-1]
-        val_ant = df_dolar['value'].iloc[-2]
-        st.metric("Dólar Observado", f"${val_act:,.2f}", delta=f"{val_act - val_ant:+.2f}")
-        st.caption(format_date_str(df_dolar['date_label'].iloc[-1], is_monthly=False))
-    elif df_dolar is not None and len(df_dolar) == 1:
-        st.metric("Dólar Observado", f"${df_dolar['value'].iloc[-1]:,.2f}")
-        st.caption(format_date_str(df_dolar['date_label'].iloc[-1], is_monthly=False))
+    if df_dolar is not None and not df_dolar.empty:
+        st.metric("USD/CLP (Rige Hoy)", f"${val_hoy:,.2f}")
+        st.caption(format_date_str(fecha_hoy, is_monthly=False))
     else:
-        st.metric("Dólar Observado", "No disp.")
+        st.metric("USD/CLP (Hoy)", "No disp.")
+
+# Dólar Fijado Mañana (aparece si el BCCh ya lo publicó)
+if has_tomorrow_dolar:
+    with c1_next:
+        st.metric("USD/CLP (Fijado Mañana)", f"${val_manana:,.2f}", delta=f"{delta_manana:+.2f}")
+        st.caption(format_date_str(fecha_manana, is_monthly=False))
 
 with c2:
     if df_cobre is not None and not df_cobre.empty:
@@ -167,9 +191,9 @@ with c5:
         nivel_act = df_ipc_nivel['value'].iloc[-1]
         if df_ipc_var is not None and not df_ipc_var.empty:
             var_mensual = df_ipc_var['value'].iloc[-1]
-            st.metric("IPC (Nivel Índice)", f"{nivel_act:,.2f} pts", delta=f"{var_mensual:+.2f}% mensual")
+            st.metric("IPC (Nivel)", f"{nivel_act:,.2f} pts", delta=f"{var_mensual:+.2f}% m/m")
         else:
-            st.metric("IPC (Nivel Índice)", f"{nivel_act:,.2f} pts")
+            st.metric("IPC (Nivel)", f"{nivel_act:,.2f} pts")
         st.caption(format_date_str(df_ipc_nivel['date_label'].iloc[-1], is_monthly=True))
     else:
         st.metric("IPC", "No disp.")
