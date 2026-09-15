@@ -122,8 +122,8 @@ with st.spinner("Actualizando variables macroeconómicas..."):
     df_tpm = get_bcch_series(bcch_user, bcch_pass, "F022.TPM.TIN.D001.NO.Z.D", days_back=365)
     df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCLP.TIS.AN10.NO.Z.D", days_back=365)
     df_cobre = get_bcch_series(bcch_user, bcch_pass, "F019.PPB.PRE.40.M", days_back=365)
-    # Inflación oficial en 12 meses del Banco Central (4.1%) y Variación del mes (0.6%)
-    df_ipc_12m = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.V12.Z.Z.C.M", days_back=180)
+    # Inflación oficial en 12 meses (4.1%) y Variación del mes (0.6%)
+    df_ipc_12m = get_bcch_series(bcch_user, bcch_pass, "G073.IPC.V12.2023.M", days_back=180)
     df_ipc_var_m = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=60)
     df_desempleo_cl = get_bcch_series(bcch_user, bcch_pass, "F049.DES.TAS.INE9.10.M", days_back=365)
 
@@ -200,7 +200,7 @@ with c5:
     if df_ipc_12m is not None and not df_ipc_12m.empty:
         val_12m = df_ipc_12m['value'].iloc[-1]
         
-        # Variación mensual para el delta
+        # Variación mensual como delta
         if df_ipc_var_m is not None and not df_ipc_var_m.empty:
             var_m = df_ipc_var_m['value'].iloc[-1]
             st.metric("Inflación IPC (12M)", f"{val_12m:.1f}%", delta=f"{var_m:+.2f}% m/m")
