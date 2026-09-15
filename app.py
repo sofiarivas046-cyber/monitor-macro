@@ -40,30 +40,45 @@ def get_fred_data(api_key):
         "df_10y": tasa_10y.dropna().tail(90).reset_index().rename(columns={"index": "Fecha", 0: "Tasa (%)"})
     }
 
+
 # ----------------------------------------------------
-# 2. Conexión con Banco Central de Chile (Corregida)
+# 2. Conexión con Banco Central de Chile (Con Diagnóstico)
 # ----------------------------------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)
 def get_bcch_series(user, password, series_id):
-    # Pedimos los últimos 45 días para asegurar fines de semana/feriados
+    # Formato de fechas requerido por el BCCh (YYYY-MM-DD)
     first_date = (datetime.now() - timedelta(days=45)).strftime('%Y-%m-%d')
-    url = f"https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx?user={user}&pass={password}&firstdate={first_date}&timeseries={series_id}&function=GetSeries"
+    last_date = datetime.now().strftime('%Y-%m-%d')
+    
+    url = (
+        f"https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx"
+        f"?user={user}&pass={password}"
+        f"&firstdate={first_date}&lastdate={last_date}"
+        f"&timeseries={series_id}&function=GetSeries"
+    )
     
     try:
-        res = requests.get(url, timeout=12).json()
+        response = requests.get(url, timeout=15)
+        res = response.json()
         
-        # Manejo de respuesta del Banco Central
+        # Si el Banco Central devuelve un error (ej. credenciales inválidas)
+        if res.get("Codigo") != 0 and "Series" not in res:
+            st.sidebar.error(f"Error BCCh ({series_id}): {res.get('Descripcion', 'Error desconocido')}")
+            return None
+            
         if 'Series' in res and 'Obs' in res['Series']:
             obs = res['Series']['Obs']
+            # Si solo hay una observación o varias
+            if isinstance(obs, dict):
+                obs = [obs]
             df = pd.DataFrame(obs)
             df['value'] = pd.to_numeric(df['value'].str.replace(',', '.'), errors='coerce')
-            df = df.dropna().reset_index(drop=True)
-            return df
-        else:
-            return None
-    except Exception:
+            return df.dropna().reset_index(drop=True)
+            
         return None
-
+    except Exception as e:
+        st.sidebar.error(f"Excepción al conectar con BCCh: {e}")
+        return None
 # ----------------------------------------------------
 # 3. Carga y despliegue de datos
 # ----------------------------------------------------
