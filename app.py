@@ -198,27 +198,31 @@ with c4:
         st.metric("Bono BCCh 10A", "No disp.")
 
 with c5:
-    if df_ipc_nivel is not None and len(df_ipc_nivel) >= 13:
-        # Cálculo exacto de la variación anual en 12 meses (YoY)
-        idx_act = df_ipc_nivel['value'].iloc[-1]
-        idx_hace_12m = df_ipc_nivel['value'].iloc[-13]
-        ipc_anual_12m = ((idx_act / idx_hace_12m) - 1.0) * 100.0
+    if df_ipc_nivel is not None and not df_ipc_nivel.empty:
+        # 1. Asegurar orden cronológico estricto (del más antiguo al más reciente)
+        df_ipc_sorted = df_ipc_nivel.sort_values(by='Fecha').reset_index(drop=True)
         
-        # Variación mensual para el delta
-        if df_ipc_var_m is not None and not df_ipc_var_m.empty:
-            var_m = df_ipc_var_m['value'].iloc[-1]
-            st.metric("Inflación IPC (12M)", f"{ipc_anual_12m:.1f}%", delta=f"{var_m:+.2f}% m/m")
-        else:
-            st.metric("Inflación IPC (12M)", f"{ipc_anual_12m:.1f}%")
+        if len(df_ipc_sorted) >= 13:
+            # Último dato disponible (Agosto)
+            idx_act = df_ipc_sorted['value'].iloc[-1]
+            # Mismo mes del año anterior (Agosto del año pasado)
+            idx_hace_12m = df_ipc_sorted['value'].iloc[-13]
             
-        st.caption(format_date_str(df_ipc_nivel['date_label'].iloc[-1], is_monthly=True))
-        
-    elif df_ipc_var_m is not None and not df_ipc_var_m.empty:
-        # Respaldo si hay menos historial
-        st.metric("IPC Mensual", f"{df_ipc_var_m['value'].iloc[-1]:.2f}%")
-        st.caption(format_date_str(df_ipc_var_m['date_label'].iloc[-1], is_monthly=True))
+            ipc_anual_12m = ((idx_act / idx_hace_12m) - 1.0) * 100.0
+            
+            # Variación mensual para el delta (+0.60% m/m)
+            if df_ipc_var_m is not None and not df_ipc_var_m.empty:
+                var_m = df_ipc_var_m['value'].iloc[-1]
+                st.metric("Inflación IPC (12M)", f"{ipc_anual_12m:.1f}%", delta=f"{var_m:+.2f}% m/m")
+            else:
+                st.metric("Inflación IPC (12M)", f"{ipc_anual_12m:.1f}%")
+                
+            st.caption(format_date_str(df_ipc_sorted['date_label'].iloc[-1], is_monthly=True))
+        else:
+            st.metric("Inflación IPC", "Faltan datos históricos")
     else:
         st.metric("Inflación IPC", "No disp.")
+        
 st.divider()
 
 # ----------------------------------------------------
