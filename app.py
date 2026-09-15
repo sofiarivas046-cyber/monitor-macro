@@ -114,11 +114,14 @@ with st.spinner("Actualizando variables macroeconómicas..."):
     df_ipc_var = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=180)
     df_desempleo_cl = get_bcch_series(bcch_user, bcch_pass, "F049.DES.TAS.INE9.10.M", days_back=180)
 
+# Bono Banco Central de Chile a 10 años en pesos (BCP 10A)
+    df_bono10_cl = get_bcch_series(bcch_user, bcch_pass, "F022.BCP.TIN.AN10.NO.Z.D", days_back=90)
+
 # ----------------------------------------------------
 # 4. Sección Chile
 # ----------------------------------------------------
 st.subheader("🇨🇱 Indicadores Chile")
-c1, c2, c3, c4, c5 = st.columns(5)
+c1, c2, c3, c4, c5, c6 = st.columns(6)
 
 with c1:
     if df_dolar is not None and len(df_dolar) >= 2:
@@ -148,6 +151,18 @@ with c3:
         st.metric("TPM", "No disp.")
 
 with c4:
+    if df_bono10_cl is not None and not df_bono10_cl.empty:
+        val_act = df_bono10_cl['value'].iloc[-1]
+        if len(df_bono10_cl) >= 2:
+            val_ant = df_bono10_cl['value'].iloc[-2]
+            st.metric("Bono BCCh 10A (BCP)", f"{val_act:.2f}%", delta=f"{(val_act - val_ant):+.2f}%")
+        else:
+            st.metric("Bono BCCh 10A (BCP)", f"{val_act:.2f}%")
+        st.caption(format_date_str(df_bono10_cl['date_label'].iloc[-1], is_monthly=False))
+    else:
+        st.metric("Bono BCCh 10A", "No disp.")
+
+with c5:
     if df_ipc_nivel is not None and not df_ipc_nivel.empty:
         nivel_act = df_ipc_nivel['value'].iloc[-1]
         if df_ipc_var is not None and not df_ipc_var.empty:
@@ -159,15 +174,13 @@ with c4:
     else:
         st.metric("IPC", "No disp.")
 
-with c5:
+with c6:
     if df_desempleo_cl is not None and not df_desempleo_cl.empty:
         st.metric("Desempleo Chile", f"{df_desempleo_cl['value'].iloc[-1]:.1f}%")
         st.caption(format_date_str(df_desempleo_cl['date_label'].iloc[-1], is_monthly=True))
     else:
         st.metric("Desempleo Chile", "No disp.")
-
-st.divider()
-
+        
 # ----------------------------------------------------
 # 5. Sección Estados Unidos
 # ----------------------------------------------------
