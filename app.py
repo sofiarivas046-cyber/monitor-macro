@@ -41,11 +41,11 @@ def get_fred_data(api_key):
     }
 
 # ----------------------------------------------------
-# 2. Conexión con Banco Central de Chile (Estructura Corregida)
+# 2. Conexión con Banco Central de Chile (Inspección y Extracción)
 # ----------------------------------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)
 def get_bcch_series(user, password, series_id):
-    # Solicitamos los últimos 60 días para cubrir fines de semana y festivos
+    # Rango de fechas de los últimos 60 días
     first_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
     last_date = datetime.now().strftime('%Y-%m-%d')
     
@@ -60,27 +60,44 @@ def get_bcch_series(user, password, series_id):
         response = requests.get(url, timeout=15)
         res = response.json()
         
-        # Validar si el Banco Central reporta un error de autenticación o parámetros
-        if res.get("Codigo") != 0 and "SeriesInfos" not in res:
-            st.sidebar.error(f"Error BCCh ({series_id}): {res.get('Descripcion')}")
+        # 1. Si el Banco Central reporta error de autenticación o parámetros
+        if res.get("Codigo") not in [0, None]:
+            st.sidebar.error(f"⚠️ BCCh ({series_id}): {res.get('Descripcion')}")
             return None
-        
-        # Extracción compatible con la estructura de la API
-        series_data = res.get("SeriesInfos") or res.get("Series")
-        if series_data and len(series_data) > 0:
-            obs = series_data[0].get("Obs", []) if isinstance(series_data, list) else series_data.get("Obs", [])
+
+        # 2. Buscar la lista de observaciones en todas las estructuras posibles del BCCh
+        obs = None
+        if "Series" in res:
+            if isinstance(res["Series"], dict):
+                obs = res["Series"].get("Obs") or res["Series"].get("obs")
+            elif isinstance(res["Series"], list) and len(res["Series"]) > 0:
+                obs = res["Series"][0].get("Obs") or res["Series"][0].get("obs")
+                
+        elif "SeriesInfos" in res:
+            if isinstance(res["SeriesInfos"], list) and len(res["SeriesInfos"]) > 0:
+                obs = res["SeriesInfos"][0].get("Obs") or res["SeriesInfos"][0].get("obs")
+            elif isinstance(res["SeriesInfos"], dict):
+                obs = res["SeriesInfos"].get("Obs") or res["SeriesInfos"].get("obs")
+
+        # 3. Si se encontraron observaciones, procesarlas
+        if obs:
+            if isinstance(obs, dict):
+                obs = [obs]
+            df = pd.DataFrame(obs)
             
-            if obs:
-                df = pd.DataFrame(obs)
-                if 'value' in df.columns:
-                    df['value'] = pd.to_numeric(df['value'].astype(str).str.replace(',', '.'), errors='coerce')
-                    return df.dropna(subset=['value']).reset_index(drop=True)
-                    
-        return None
-    except Exception as e:
-        st.sidebar.error(f"Error al procesar serie {series_id}: {e}")
+            # Normalizar nombre de la columna (a veces viene 'value' o 'Value')
+            col_val = next((c for c in df.columns if c.lower() == 'value'), None)
+            if col_val:
+                df['value'] = pd.to_numeric(df[col_val].astype(str).str.replace(',', '.'), errors='coerce')
+                return df.dropna(subset=['value']).reset_index(drop=True)
+
+        # Si no pudo extraer datos, muestra la respuesta cruda en la barra lateral para diagnosticar
+        st.sidebar.warning(f"Respuesta BCCh para {series_id}: {str(res)[:180]}")
         return None
 
+    except Exception as e:
+        st.sidebar.error(f"Error con BCCh ({series_id}): {e}")
+        return None
 # ----------------------------------------------------
 # 3. Carga y despliegue de datos
 # ----------------------------------------------------
