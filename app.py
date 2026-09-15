@@ -40,14 +40,13 @@ def get_fred_data(api_key):
         "df_10y": tasa_10y.dropna().tail(90).reset_index().rename(columns={"index": "Fecha", 0: "Tasa (%)"})
     }
 
-
 # ----------------------------------------------------
-# 2. Conexión con Banco Central de Chile (Con Diagnóstico)
+# 2. Conexión con Banco Central de Chile (Estructura Corregida)
 # ----------------------------------------------------
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=3600)
 def get_bcch_series(user, password, series_id):
-    # Formato de fechas requerido por el BCCh (YYYY-MM-DD)
-    first_date = (datetime.now() - timedelta(days=45)).strftime('%Y-%m-%d')
+    # Solicitamos los últimos 60 días para cubrir fines de semana y festivos
+    first_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
     last_date = datetime.now().strftime('%Y-%m-%d')
     
     url = (
@@ -61,24 +60,27 @@ def get_bcch_series(user, password, series_id):
         response = requests.get(url, timeout=15)
         res = response.json()
         
-        # Si el Banco Central devuelve un error (ej. credenciales inválidas)
-        if res.get("Codigo") != 0 and "Series" not in res:
-            st.sidebar.error(f"Error BCCh ({series_id}): {res.get('Descripcion', 'Error desconocido')}")
+        # Validar si el Banco Central reporta un error de autenticación o parámetros
+        if res.get("Codigo") != 0 and "SeriesInfos" not in res:
+            st.sidebar.error(f"Error BCCh ({series_id}): {res.get('Descripcion')}")
             return None
+        
+        # Extracción compatible con la estructura de la API
+        series_data = res.get("SeriesInfos") or res.get("Series")
+        if series_data and len(series_data) > 0:
+            obs = series_data[0].get("Obs", []) if isinstance(series_data, list) else series_data.get("Obs", [])
             
-        if 'Series' in res and 'Obs' in res['Series']:
-            obs = res['Series']['Obs']
-            # Si solo hay una observación o varias
-            if isinstance(obs, dict):
-                obs = [obs]
-            df = pd.DataFrame(obs)
-            df['value'] = pd.to_numeric(df['value'].str.replace(',', '.'), errors='coerce')
-            return df.dropna().reset_index(drop=True)
-            
+            if obs:
+                df = pd.DataFrame(obs)
+                if 'value' in df.columns:
+                    df['value'] = pd.to_numeric(df['value'].astype(str).str.replace(',', '.'), errors='coerce')
+                    return df.dropna(subset=['value']).reset_index(drop=True)
+                    
         return None
     except Exception as e:
-        st.sidebar.error(f"Excepción al conectar con BCCh: {e}")
+        st.sidebar.error(f"Error al procesar serie {series_id}: {e}")
         return None
+
 # ----------------------------------------------------
 # 3. Carga y despliegue de datos
 # ----------------------------------------------------
