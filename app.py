@@ -5,7 +5,7 @@ from fredapi import Fred
 import plotly.express as px
 from datetime import datetime, timedelta
 
-# Configuración de la página
+# Configuración visual de la página
 st.set_page_config(
     page_title="Monitor Macroeconómico",
     page_icon="📈",
@@ -13,7 +13,20 @@ st.set_page_config(
 )
 
 st.title("📊 Monitor Macroeconómico")
-st.caption("Fuentes oficiales: Banco Central de Chile y Reserva Federal de EE.UU. (FRED)")
+st.caption("Fuentes oficiales: Banco Central de Chile (BCCh) y Reserva Federal de EE.UU. (FRED)")
+
+# Función auxiliar para formatear fechas limpias
+def format_date_str(dt, is_monthly=False):
+    if dt is None:
+        return ""
+    try:
+        ts = pd.to_datetime(dt, dayfirst=True)
+        if is_monthly:
+            meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+            return f"📅 {meses[ts.month - 1]} {ts.year}"
+        return f"📅 {ts.strftime('%d-%m-%Y')}"
+    except Exception:
+        return f"📅 {str(dt)[:10]}"
 
 # ----------------------------------------------------
 # 1. Función FRED (Estados Unidos)
@@ -30,10 +43,10 @@ def get_fred_data(api_key):
     cpi_yoy = ((cpi.iloc[-1] / cpi.iloc[-13]) - 1) * 100
     
     return {
-        "us_10y": (tasa_10y.iloc[-1], tasa_10y.iloc[-2]),
-        "fed_rate": (tasa_fed.iloc[-1], tasa_fed.iloc[-2]),
-        "us_cpi": cpi_yoy,
-        "us_unemp": unrate.iloc[-1],
+        "us_10y": (tasa_10y.iloc[-1], tasa_10y.iloc[-2], tasa_10y.index[-1]),
+        "fed_rate": (tasa_fed.iloc[-1], tasa_fed.iloc[-2], tasa_fed.index[-1]),
+        "us_cpi": (cpi_yoy, cpi.index[-1]),
+        "us_unemp": (unrate.iloc[-1], unrate.index[-1]),
         "df_10y": tasa_10y.tail(90).reset_index().rename(columns={"index": "Fecha", 0: "Tasa (%)"})
     }
 
@@ -56,22 +69,22 @@ def get_bcch_series(user, password, series_id, days_back=120):
         response = requests.get(url, timeout=15)
         res = response.json()
         
-        # Validar si el BCCh entregó respuesta
+        obs = None
         if "Series" in res and res["Series"] and "Obs" in res["Series"]:
             obs = res["Series"]["Obs"]
+        elif "SeriesInfos" in res and res["SeriesInfos"]:
+            obs = res["SeriesInfos"][0].get("Obs", [])
+
+        if obs:
             if isinstance(obs, dict):
                 obs = [obs]
             df = pd.DataFrame(obs)
             col_val = next((c for c in df.columns if c.lower() == 'value'), None)
             if col_val:
                 df['value'] = pd.to_numeric(df[col_val].astype(str).str.replace(',', '.'), errors='coerce')
-                return df.dropna(subset=['value']).reset_index(drop=True)
-                
-        elif "SeriesInfos" in res and res["SeriesInfos"]:
-            obs = res["SeriesInfos"][0].get("Obs", [])
-            df = pd.DataFrame(obs)
-            if 'value' in df.columns:
-                df['value'] = pd.to_numeric(df['value'].astype(str).str.replace(',', '.'), errors='coerce')
+                # Normalizar columna de fecha
+                col_date = next((c for c in df.columns if 'date' in c.lower()), df.columns[0])
+                df['date_label'] = df[col_date]
                 return df.dropna(subset=['value']).reset_index(drop=True)
 
         return None
@@ -90,22 +103,17 @@ if not fred_key or not bcch_user or not bcch_pass:
     st.stop()
 
 with st.spinner("Actualizando variables macroeconómicas..."):
-    # Carga FRED
+    # FRED
     data_us = get_fred_data(fred_key)
     
-    # Códigos de series oficiales del Banco Central de Chile
+    # Banco Central de Chile
     df_dolar = get_bcch_series(bcch_user, bcch_pass, "F073.TCO.PRE.Z.D", days_back=60)
     df_tpm = get_bcch_series(bcch_user, bcch_pass, "F022.TPM.TIN.D001.NO.Z.D", days_back=60)
     df_cobre = get_bcch_series(bcch_user, bcch_pass, "F019.PPB.PRE.40.M", days_back=180)
-    df_ipc = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=180)
-    
-# IPC Índice (Nivel en puntos) y Variación Mensual (%)
     df_ipc_nivel = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.IND.Z.EP09.C.M", days_back=180)
     df_ipc_var = get_bcch_series(bcch_user, bcch_pass, "F074.IPC.VAR.Z.Z.C.M", days_back=180)
-
-# Tasa de desocupación nacional (INE/BCCh)
     df_desempleo_cl = get_bcch_series(bcch_user, bcch_pass, "F049.DES.TAS.INE9.10.M", days_back=180)
-    
+
 # ----------------------------------------------------
 # 4. Sección Chile
 # ----------------------------------------------------
@@ -116,9 +124,11 @@ with c1:
     if df_dolar is not None and len(df_dolar) >= 2:
         val_act = df_dolar['value'].iloc[-1]
         val_ant = df_dolar['value'].iloc[-2]
-        st.metric("Dólar Observado (USD/CLP)", f"${val_act:,.2f}", delta=f"{val_act - val_ant:+.2f}")
+        st.metric("Dólar Observado", f"${val_act:,.2f}", delta=f"{val_act - val_ant:+.2f}")
+        st.caption(format_date_str(df_dolar['date_label'].iloc[-1], is_monthly=False))
     elif df_dolar is not None and len(df_dolar) == 1:
-        st.metric("Dólar Observado (USD/CLP)", f"${df_dolar['value'].iloc[-1]:,.2f}")
+        st.metric("Dólar Observado", f"${df_dolar['value'].iloc[-1]:,.2f}")
+        st.caption(format_date_str(df_dolar['date_label'].iloc[-1], is_monthly=False))
     else:
         st.metric("Dólar Observado", "No disp.")
 
@@ -126,12 +136,14 @@ with c2:
     if df_cobre is not None and not df_cobre.empty:
         val_act = df_cobre['value'].iloc[-1]
         st.metric("Cobre BML (USD/lb)", f"${val_act:.2f}")
+        st.caption(format_date_str(df_cobre['date_label'].iloc[-1], is_monthly=True))
     else:
         st.metric("Cobre BML", "No disp.")
 
 with c3:
     if df_tpm is not None and not df_tpm.empty:
         st.metric("TPM Chile", f"{df_tpm['value'].iloc[-1]:.2f}%")
+        st.caption(format_date_str(df_tpm['date_label'].iloc[-1], is_monthly=False))
     else:
         st.metric("TPM", "No disp.")
 
@@ -143,16 +155,16 @@ with c4:
             st.metric("IPC (Nivel Índice)", f"{nivel_act:,.2f} pts", delta=f"{var_mensual:+.2f}% mensual")
         else:
             st.metric("IPC (Nivel Índice)", f"{nivel_act:,.2f} pts")
+        st.caption(format_date_str(df_ipc_nivel['date_label'].iloc[-1], is_monthly=True))
     else:
         st.metric("IPC", "No disp.")
 
 with c5:
     if df_desempleo_cl is not None and not df_desempleo_cl.empty:
-        val_act = df_desempleo_cl['value'].iloc[-1]
-        st.metric("Desempleo Chile", f"{val_act:.1f}%")
+        st.metric("Desempleo Chile", f"{df_desempleo_cl['value'].iloc[-1]:.1f}%")
+        st.caption(format_date_str(df_desempleo_cl['date_label'].iloc[-1], is_monthly=True))
     else:
         st.metric("Desempleo Chile", "No disp.")
-
 
 st.divider()
 
@@ -163,18 +175,24 @@ st.subheader("🇺🇸 Indicadores Estados Unidos")
 u1, u2, u3, u4 = st.columns(4)
 
 with u1:
-    val_act, val_ant = data_us["us_10y"]
+    val_act, val_ant, f_date = data_us["us_10y"]
     st.metric("Bono US Treasury 10A", f"{val_act:.2f}%", delta=f"{(val_act - val_ant):+.2f}%")
+    st.caption(format_date_str(f_date, is_monthly=False))
 
 with u2:
-    val_act, val_ant = data_us["fed_rate"]
+    val_act, val_ant, f_date = data_us["fed_rate"]
     st.metric("Tasa Fed Funds", f"{val_act:.2f}%")
+    st.caption(format_date_str(f_date, is_monthly=True))
 
 with u3:
-    st.metric("Inflación CPI EE.UU. (12M)", f"{data_us['us_cpi']:.1f}%")
+    val_act, f_date = data_us["us_cpi"]
+    st.metric("Inflación CPI EE.UU. (12M)", f"{val_act:.1f}%")
+    st.caption(format_date_str(f_date, is_monthly=True))
 
 with u4:
-    st.metric("Desempleo EE.UU.", f"{data_us['us_unemp']:.1f}%")
+    val_act, f_date = data_us["us_unemp"]
+    st.metric("Desempleo EE.UU.", f"{val_act:.1f}%")
+    st.caption(format_date_str(f_date, is_monthly=True))
 
 # ----------------------------------------------------
 # 6. Gráfico de Tendencia
